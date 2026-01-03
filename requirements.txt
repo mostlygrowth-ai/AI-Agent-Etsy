@@ -1,0 +1,8 @@
+openai          # GPT API raktažodžiams ir SEO aprašymams
+requests        # HTTP užklausoms API
+Pillow          # darbui su paveikslėliais (PNG, JPG)
+python-dotenv   # API raktams iš .env failo
+langchain
+diffusers
+torch
+transformers
