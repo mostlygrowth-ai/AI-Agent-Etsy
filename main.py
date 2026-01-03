@@ -1,69 +1,127 @@
 import os
-import openai
-from PIL import Image
 import base64
-import requests
-from datetime import datetime
-import time
 from dotenv import load_dotenv
 
-# Įkrauname API raktus iš .env
+# Tikrinam Python versiją
+import sys
+if sys.version_info < (3, 10):
+    print("Rekomenduojama Python 3.10+")
+
+# Stable Diffusion
+from diffusers import StableDiffusionPipeline
+import torch
+
+# OpenAI GPT
+from openai import OpenAI
+
+# 1️⃣ Įkeliam .env kintamuosius
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY nerastas. Patikrink .env failą!")
 
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=api_key)
+print("🤖 AI agentas paleistas...")
 
-# Folderis dizainams išsaugoti
-OUTPUT_FOLDER = "designs"
-if not os.path.exists(OUTPUT_FOLDER):
-    os.makedirs(OUTPUT_FOLDER)
+# 2️⃣ Funkcija idėjoms normalizuoti
+def normalize_idea(idea_text):
+    """
+    Trumpina idėją iki aiškaus objekto + emocijos/veiksmo.
+    Pašalina ilgus aprašymus, fone esančius elementus, nebūtinas frazes.
+    """
+    keywords_to_remove = [
+        "minimalist", "line art", "vector", "t-shirt print",
+        "illustration", "background", "centered", "composition",
+        "high contrast", "simple"
+    ]
+    
+    idea_clean = idea_text.lower()
+    for word in keywords_to_remove:
+        idea_clean = idea_clean.replace(word, "")
+    
+    # Pašalina simbolius
+    idea_clean = idea_clean.replace(".", "").replace(",", "")
+    
+    # Sutrumpina iki ~5–7 žodžių
+    words = idea_clean.strip().split()
+    short_idea = " ".join(words[:7])
+    
+    # Pirmoji raidė didžioji
+    return short_idea.capitalize()
 
-# Funkcija: sugeneruoti raktažodžius
-def generate_keywords(topic):
-    prompt = f"Sugeneruok 5-10 raktažodžių, kurie tiktų Etsy produktui tema: {topic}"
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0.7
-    )
-    keywords = response['choices'][0]['message']['content']
-    return keywords.strip().split(", ")
+# 3️⃣ Promptas idėjoms generuoti
+prompt = """
+Sugeneruok 3 skirtingas, kūrybingas idėjas minimalistic marškinėlių dizainui.
+Be pasikartojimų, be frazių "less is more" ar "minimal", be žinomų citatų.
+Tik viena idėja vienoje eilutėje.
+"""
 
-# Funkcija: generuoti dizainą per DALL·E
-def generate_design(prompt, filename):
-    response = openai.Image.create(
-        prompt=prompt,
-        n=1,
-        size="512x512"
-    )
-    image_base64 = response['data'][0]['b64_json']
-    image_data = base64.b64decode(image_base64)
-    filepath = os.path.join(OUTPUT_FOLDER, filename)
-    with open(filepath, "wb") as f:
-        f.write(image_data)
-    print(f"Dizainas išsaugotas: {filepath}")
+# 4️⃣ Generuojame naujas idėjas su GPT
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "Tu esi kūrybingas dizaino asistentas."},
+        {"role": "user", "content": prompt}
+    ]
+)
 
-# Pagrindinė agento funkcija
-def main():
-    topic_list = ["minimalist sarkazmas vasara", "funny quote", "summer vibes"]  # pradinis promptų sąrašas
-    while True:
-        for topic in topic_list:
-            # 1️⃣ Generuojame raktažodžius
-            keywords = generate_keywords(topic)
-            print(f"Raktažodžiai {topic}: {keywords}")
+raw_ideas = [line.strip() for line in response.choices[0].message.content.splitlines() if line.strip() != ""]
+naujos_idejos = [normalize_idea(i) for i in raw_ideas]
 
-            # 2️⃣ Generuojame dizainą
-            design_prompt = f"{topic}, {', '.join(keywords)}, minimalist style"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{topic.replace(' ', '_')}_{timestamp}.png"
-            generate_design(design_prompt, filename)
+# 5️⃣ Įrašome naujas idėjas į rezultatai.txt
+rezultatai_file = "rezultatai.txt"
+senos_idejos = set()
+if os.path.exists(rezultatai_file):
+    with open(rezultatai_file, "r", encoding="utf-8") as f:
+        senos_idejos = set(line.strip() for line in f if line.strip() != "")
 
-            # 3️⃣ Palaukti, kad neperspaustume API limitų
-            time.sleep(10)  # gali koreguoti pagal savo poreikį
+# Filtruojam tik naujas
+final_ideas = [i for i in naujos_idejos if i not in senos_idejos]
 
-        # 4️⃣ Laukiame valandą iki kito ciklo (arba pagal norą)
-        print("Ciklas baigtas. Laukiame 1 valandą...")
-        time.sleep(3600)
+with open(rezultatai_file, "a", encoding="utf-8") as f:
+    for id in final_ideas:
+        f.write(id + "\n")
 
-if __name__ == "__main__":
-    main()
+print(f"📝 {len(final_ideas)} naujų idėjų įrašyta į {rezultatai_file}")
+for i in final_ideas:
+    print("🎯", i)
+
+# 6️⃣ Stable Diffusion pipeline (256x256)
+print("🎨 Kuriu Stable Diffusion pipeline...")
+sd_pipe = StableDiffusionPipeline.from_pretrained(
+    "runwayml/stable-diffusion-v1-5",
+    torch_dtype=torch.float16
+)
+sd_pipe = sd_pipe.to("cuda" if torch.cuda.is_available() else "cpu")
+
+# 7️⃣ Generuojame paveikslėlius
+if not os.path.exists("images"):
+    os.makedirs("images")
+
+for idx, idea in enumerate(final_ideas, start=1):
+    print(f"🖼️ Generuoju paveikslėlį {idx}: {idea}")
+    try:
+        prompt_image = f"""
+Minimalist black line art illustration, white background, simple continuous black lines,
+flat vector style, no background, no scenery, no shading, no gradients,
+high contrast, centered composition, t-shirt print design.
+Subject: {idea}
+"""
+        negative_prompt = """
+landscape, scenery, sky, grass, nature, background, colorful, colors,
+realistic, photo, painting, shadows, texture, gradient
+"""
+        image = sd_pipe(
+            prompt_image,
+            negative_prompt=negative_prompt,
+            height=256,
+            width=256,
+            guidance_scale=7.5
+        ).images[0]
+
+        filename = f"images/{idea[:10].replace(' ', '_')}_{idx}.png"
+        image.save(filename)
+    except Exception as e:
+        print(f"❌ Klaida generuojant paveikslėlį '{idea}': {e}")
+
+print("✅ Nauji paveikslėliai sugeneruoti ir įrašyti į images/ folderį")
