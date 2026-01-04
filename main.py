@@ -51,16 +51,16 @@ def normalize_idea(idea_text):
 
 # 3️⃣ Promptas idėjoms generuoti
 prompt = """
-Sugeneruok 3 skirtingas, kūrybingas idėjas minimalistic marškinėlių dizainui.
+Sugeneruok idėją minimalistinių marškinėlių dizainui.
 Be pasikartojimų, be frazių "less is more" ar "minimal", be žinomų citatų.
-Tik viena idėja vienoje eilutėje.
+
 """
 
 # 4️⃣ Generuojame naujas idėjas su GPT
 response = client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[
-        {"role": "system", "content": "Tu esi kūrybingas dizaino asistentas."},
+        {"role": "system", "content": "Tu esi minimalistinių dizainų asistentas."},
         {"role": "user", "content": prompt}
     ]
 )
